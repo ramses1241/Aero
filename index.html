@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SNES Cloud - Raíz</title>
+    <title>SNES Cloud - Auto Ejecución .sfc</title>
     <style>
         * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
         body {
@@ -21,15 +21,10 @@
         }
         h1 { margin: 5px 0; font-size: 1.2rem; color: #ff5722; }
         
-        #rom-selector { 
-            margin-bottom: 10px; 
-            background: #333; 
-            color: #fff; 
-            border: 2px solid #ff5722; 
-            padding: 8px; 
-            border-radius: 5px;
-            font-size: 1rem;
-            cursor: pointer;
+        #status-message {
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            color: #aaa;
         }
         
         #canvas-container {
@@ -83,12 +78,8 @@
 
     <h1>SNES Cloud Player</h1>
     
-    <!-- Selector de Juegos en la Carpeta Raíz -->
-    <select id="rom-selector">
-        <option value="">-- Selecciona un juego --</option>
-        <option value="Super_Mario_World.sfc">Super Mario World</option>
-        <option value="Zelda_A_Link_To_The_Past.sfc">Zelda: A Link to the Past</option>
-    </select>
+    <!-- Mensaje de Estado del Juego -->
+    <div id="status-message">Buscando juego en la raíz...</div>
 
     <div id="canvas-container">
         <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
@@ -122,6 +113,9 @@
     </div>
 
     <script>
+        var currentRomName = "";
+        var statusText = document.getElementById('status-message');
+
         var Module = {
             canvas: document.getElementById('canvas'),
             arguments: [],
@@ -129,36 +123,95 @@
             printErr: function(text) { console.error(text); },
             onRuntimeInitialized: function() { 
                 console.log("Emulador listo.");
+                // Intentar buscar automáticamente el archivo cuando el emulador cargue
+                detectAndLoadRom();
             }
         };
 
-        // Función para descargar la ROM directamente desde la raíz del servidor
-        document.getElementById('rom-selector').addEventListener('change', function(e) {
-            var romName = e.target.value;
-            if (!romName) return;
+        // Función inteligente para rastrear el archivo .sfc en tu repositorio
+        function detectAndLoadRom() {
+            // Si estás usando GitHub Pages, podemos usar su API para listar la raíz automáticamente
+            var loc = window.location;
+            if (loc.hostname.includes("github.io")) {
+                var pathParts = loc.pathname.split('/').filter(Boolean);
+                var user = loc.hostname.split('.')[0];
+                var repo = pathParts[0] || "";
+                
+                if (repo) {
+                    var apiUrl = `https://github.com{user}/${repo}/contents/`;
+                    fetch(apiUrl)
+                        .then(res => res.json())
+                        .then(files => {
+                            // Buscar el primer archivo que termine en .sfc
+                            var sfcFile = files.find(f => f.name.toLowerCase().endsWith('.sfc'));
+                            if (sfcFile) {
+                                executeRom(sfcFile.name);
+                            } else {
+                                statusText.innerText = "Error: No se encontró ningún archivo .sfc en la raíz.";
+                            }
+                        })
+                        .catch(() => fallbackDetection());
+                } else { fallbackDetection(); }
+            } else {
+                fallbackDetection();
+            }
+        }
 
-            // Busca el archivo directamente en la raíz (ej: ./Super_Mario_World.sfc)
-            var urlRutaReal = './' + romName; 
+        // Alternativa de detección si usas servidores locales u otros hostings
+        function fallbackDetection() {
+            statusText.innerText = "Buscando juego por método alternativo...";
+            // Si no estás en GitHub, intentará cargar un archivo genérico llamado 'juego.sfc' en la raíz
+            executeRom("juego.sfc");
+        }
 
-            fetch(urlRutaReal)
+        // Descarga y ejecuta el archivo encontrado
+        function executeRom(romName) {
+            currentRomName = romName;
+            statusText.innerText = "Cargando: " + romName;
+
+            fetch('./' + romName)
                 .then(response => {
-                    if (!response.ok) throw new Error('No se encontró el archivo en la raíz del servidor.');
+                    if (!response.ok) throw new Error('Asegúrate de que tu archivo se llame juego.sfc o esté subido a GitHub Pages.');
                     return response.arrayBuffer();
                 })
                 .then(buffer => {
                     var data = new Uint8Array(buffer);
                     var virtualPath = '/' + romName;
 
-                    // Guarda el archivo directamente en el directorio raíz interno del emulador
                     Module['FS_createDataFile']('/', romName, data, true, true);
                     
-                    // Ejecuta el juego desde la raíz
-                    Module['callMain']([ virtualPath ]);
-                })
-                .catch(err => alert(err.message));
-        });
+                    // Cargar guardados previos si existen
+                    try {
+                        var savedState = localStorage.getItem('snes_save_' + currentRomName);
+                        if (savedState) {
+                            var stateArray = new Uint8Array(JSON.parse(savedState));
+                            Module['FS_createDataFile']('/', romName + '.srm', stateArray, true, true);
+                        }
+                    } catch(e) {}
 
-        // Mapeo de controles
+                    Module['callMain']([ virtualPath ]);
+                    statusText.innerText = "Jugando ahora: " + romName.replace('.sfc', '').replace(/_/g, ' ');
+
+                    // Auto-guardado constante
+                    setInterval(autoSaveGame, 15000);
+                })
+                .catch(err => {
+                    statusText.innerText = err.message;
+                });
+        }
+
+        function autoSaveGame() {
+            if (!currentRomName) return;
+            try {
+                var savePath = '/' + currentRomName + '.srm';
+                var fileData = Module['FS_readFile'](savePath);
+                if (fileData) {
+                    localStorage.setItem('snes_save_' + currentRomName, JSON.stringify(Array.from(fileData)));
+                }
+            } catch (e) {}
+        }
+
+        // Mapeo de controles táctiles
         const keyMap = { 'btn-up': 38, 'btn-down': 40, 'btn-left': 37, 'btn-right': 39, 'btn-a': 88, 'btn-b': 90, 'btn-x': 83, 'btn-y': 65, 'btn-start': 13, 'btn-select': 16, 'btn-l': 81, 'btn-r': 87 };
         function simulateKey(keyCode, type) { window.dispatchEvent(new KeyboardEvent(type, { keyCode: keyCode, which: keyCode, bubbles: true })); }
         Object.keys(keyMap).forEach(id => {
@@ -168,7 +221,3 @@
             btn.addEventListener('mousedown', (e) => { simulateKey(code, 'keydown'); });
             btn.addEventListener('mouseup', (e) => { simulateKey(code, 'keyup'); });
         });
-    </script>
-    <script async src="https://github.io"></script>
-</body>
-</html>
