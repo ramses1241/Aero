@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SNES Cloud - Auto ROM</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body {
+            margin: 0;
+            background-color: #1a1a1a;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            padding: 10px;
+            touch-action: manipulation;
+        }
+        h1 { margin: 5px 0; font-size: 1.2rem; color: #ff5722; }
+        
+        /* Lista de selección de juegos del repositorio */
+        #rom-selector { 
+            margin-bottom: 10px; 
+            background: #333; 
+            color: #fff; 
+            border: 2px solid #ff5722; 
+            padding: 8px; 
+            border-radius: 5px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        
+        #canvas-container {
+            position: relative;
+            width: 100%;
+            max-width: 512px;
+            aspect-ratio: 4/3;
+            background: #000;
+            border: 3px solid #333;
+            border-radius: 8px;
+        }
+        canvas { width: 100%; height: 100%; display: block; }
+
+        .touch-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            max-width: 600px;
+            margin-top: 15px;
+            padding: 10px;
+        }
+
+        .dpad { position: relative; width: 120px; height: 120px; }
+        .dpad-btn { position: absolute; background: #444; border: 2px solid #222; border-radius: 5px; }
+        .dpad-btn:active { background: #666; }
+        #btn-up    { top: 0; left: 40px; width: 40px; height: 40px; border-radius: 5px 5px 0 0; }
+        #btn-down  { bottom: 0; left: 40px; width: 40px; height: 40px; border-radius: 0 0 5px 5px; }
+        #btn-left  { top: 40px; left: 0; width: 40px; height: 40px; border-radius: 5px 0 0 5px; }
+        #btn-right { top: 40px; right: 0; width: 40px; height: 40px; border-radius: 0 5px 5px 0; }
+        .dpad-center { position: absolute; top: 40px; left: 40px; width: 40px; height: 40px; background: #444; }
+
+        .center-btns { display: flex; gap: 10px; flex-direction: column; }
+        .sys-btn { background: #555; border: 1px solid #222; color: #fff; padding: 6px 12px; font-size: 0.7rem; border-radius: 15px; text-transform: uppercase; }
+        .sys-btn:active { background: #888; }
+
+        .action-btns { position: relative; width: 130px; height: 130px; }
+        .act-btn { position: absolute; width: 40px; height: 40px; border-radius: 50%; border: 2px solid #222; font-weight: bold; display: flex; align-items: center; justify-content: center; color: white; font-size: 1rem; }
+        .act-btn:active { opacity: 0.7; }
+        #btn-x { top: 0; left: 45px; background: #3f51b5; }
+        #btn-y { top: 45px; left: 0; background: #ffeb3b; color: #000; }
+        #btn-a { top: 45px; right: 0; background: #4caf50; }
+        #btn-b { bottom: 0; left: 45px; background: #f44336; }
+
+        .top-triggers { display: flex; justify-content: space-between; width: 100%; max-width: 512px; margin-top: 5px; }
+        .trig-btn { background: #333; border: 2px solid #555; color: #fff; padding: 5px 20px; border-radius: 5px; font-size: 0.8rem; }
+        .trig-btn:active { background: #555; }
+    </style>
+</head>
+<body>
+
+    <h1>SNES Cloud Player</h1>
+    
+    <!-- Selector de Juegos de tu carpeta "roms" -->
+    <select id="rom-selector">
+        <option value="">-- Elige un juego de tu nube --</option>
+        <option value="Aero Fighters (USA).sfc">Aero Fighters (USA)</option>
+    </select>
+
+    <div id="canvas-container">
+        <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    </div>
+
+    <div class="top-triggers">
+        <button class="trig-btn" id="btn-l">L</button>
+        <button class="trig-btn" id="btn-r">R</button>
+    </div>
+
+    <div class="touch-controls">
+        <div class="dpad">
+            <div class="dpad-btn" id="btn-up"></div>
+            <div class="dpad-btn" id="btn-down"></div>
+            <div class="dpad-btn" id="btn-left"></div>
+            <div class="dpad-btn" id="btn-right"></div>
+            <div class="dpad-center"></div>
+        </div>
+
+        <div class="center-btns">
+            <button class="sys-btn" id="btn-select">Select</button>
+            <button class="sys-btn" id="btn-start">Start</button>
+        </div>
+
+        <div class="action-btns">
+            <div class="act-btn" id="btn-x">X</div>
+            <div class="act-btn" id="btn-y">Y</div>
+            <div class="act-btn" id="btn-a">A</div>
+            <div class="act-btn" id="btn-b">B</div>
+        </div>
+    </div>
+
+    <script>
+        var Module = {
+            canvas: document.getElementById('canvas'),
+            arguments: [],
+            print: function(text) { console.log(text); },
+            printErr: function(text) { console.error(text); },
+            onRuntimeInitialized: function() { 
+                console.log("Emulador listo.");
+                // LINEA CLAVE: Crea la carpeta virtual '/roms' dentro del entorno WebAssembly al iniciar
+                Module['FS_createFolder']('/', 'roms', true, true);
+            }
+        };
+
+        // Función para descargar la ROM automáticamente desde tu servidor/repositorio
+        document.getElementById('rom-selector').addEventListener('change', function(e) {
+            var romName = e.target.value;
+            if (!romName) return;
+
+            // Ruta de la carpeta real en tu servidor (ej: roms/Super_Mario_World.sfc)
+            var urlRutaReal = 'roms/' + romName; 
+
+            fetch(urlRutaReal)
+                .then(response => {
+                    if (!response.ok) throw new Error('No se encontró el juego en la carpeta roms/');
+                    return response.arrayBuffer();
+                })
+                .then(buffer => {
+                    var data = new Uint8Array(buffer);
+                    var virtualPath = '/roms/' + romName;
+
+                    // Guarda el archivo descargado en la carpeta interna del emulador
+                    Module['FS_createDataFile']('/roms', romName, data, true, true);
+                    
+                    // Ejecuta el juego apuntando a esa ruta
+                    Module['callMain']([ virtualPath ]);
+                })
+                .catch(err => alert(err.message));
+        });
+
+        // Mapeo de controles (idéntico al anterior)
+        const keyMap = { 'btn-up': 38, 'btn-down': 40, 'btn-left': 37, 'btn-right': 39, 'btn-a': 88, 'btn-b': 90, 'btn-x': 83, 'btn-y': 65, 'btn-start': 13, 'btn-select': 16, 'btn-l': 81, 'btn-r': 87 };
+        function simulateKey(keyCode, type) { window.dispatchEvent(new KeyboardEvent(type, { keyCode: keyCode, which: keyCode, bubbles: true })); }
+        Object.keys(keyMap).forEach(id => {
+            const btn = document.getElementById(id); const code = keyMap[id];
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); simulateKey(code, 'keydown'); });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); simulateKey(code, 'keyup'); });
+            btn.addEventListener('mousedown', (e) => { simulateKey(code, 'keydown'); });
+            btn.addEventListener('mouseup', (e) => { simulateKey(code, 'keyup'); });
+        });
+    </script>
+    <script async src="https://github.io"></script>
+</body>
+</html>
