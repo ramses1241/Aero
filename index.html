@@ -171,7 +171,7 @@
 
             fetch('./' + romName)
                 .then(response => {
-                    if (!response.ok) throw new Error('Asegúrate de que tu archivo se llame juego.sfc o esté subido a GitHub Pages.');
+                    if (!response.ok) throw new Error('Asegúrate de que tu archivo se llame Aero Fighters (USA).sfc o esté subido a GitHub Pages.');
                     return response.arrayBuffer();
                 })
                 .then(buffer => {
@@ -190,7 +190,7 @@
                     } catch(e) {}
 
                     Module['callMain']([ virtualPath ]);
-                    statusText.innerText = "Jugando ahora: " + romName.replace('.sfc', '').replace(/_/g, ' ');
+                    statusText.innerText = "Jugando ahora: " + romName.replace('Aero Fighters (USA).sfc', '').replace(/_/g, ' ');
 
                     // Auto-guardado constante
                     setInterval(autoSaveGame, 15000);
