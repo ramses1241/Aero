@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SNES Cloud - Auto Ejecución .sfc</title>
+    <title>SNES Cloud Player - Ejecutor .sfc</title>
     <style>
         * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
         body {
@@ -25,6 +25,17 @@
             margin-bottom: 10px;
             font-size: 0.9rem;
             color: #aaa;
+            text-align: center;
+        }
+
+        #file-loader {
+            margin-bottom: 10px;
+            background: #333;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border: 1px solid #555;
         }
         
         #canvas-container {
@@ -78,8 +89,10 @@
 
     <h1>SNES Cloud Player</h1>
     
-    <!-- Mensaje de Estado del Juego -->
-    <div id="status-message">Buscando juego en la raíz...</div>
+    <div id="status-message">Iniciando emulador de Súper Nintendo...</div>
+    
+    <!-- Carga manual de respaldo si deseas abrir otro archivo .sfc desde tu dispositivo -->
+    <input type="file" id="file-loader" accept=".sfc">
 
     <div id="canvas-container">
         <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
@@ -113,7 +126,7 @@
     </div>
 
     <script>
-        var currentRomName = "";
+        var currentRomName = "juego.sfc"; // Nombre base por defecto en la raíz
         var statusText = document.getElementById('status-message');
 
         var Module = {
@@ -122,82 +135,68 @@
             print: function(text) { console.log(text); },
             printErr: function(text) { console.error(text); },
             onRuntimeInitialized: function() { 
-                console.log("Emulador listo.");
-                // Intentar buscar automáticamente el archivo cuando el emulador cargue
-                detectAndLoadRom();
+                statusText.innerText = "Buscando archivo de juego en el servidor...";
+                autoFetchRootRom();
             }
         };
 
-        // Función inteligente para rastrear el archivo .sfc en tu repositorio
-        function detectAndLoadRom() {
-            // Si estás usando GitHub Pages, podemos usar su API para listar la raíz automáticamente
-            var loc = window.location;
-            if (loc.hostname.includes("github.io")) {
-                var pathParts = loc.pathname.split('/').filter(Boolean);
-                var user = loc.hostname.split('.')[0];
-                var repo = pathParts[0] || "";
-                
-                if (repo) {
-                    var apiUrl = `https://github.com{user}/${repo}/contents/`;
-                    fetch(apiUrl)
-                        .then(res => res.json())
-                        .then(files => {
-                            // Buscar el primer archivo que termine en .sfc
-                            var sfcFile = files.find(f => f.name.toLowerCase().endsWith('.sfc'));
-                            if (sfcFile) {
-                                executeRom(sfcFile.name);
-                            } else {
-                                statusText.innerText = "Error: No se encontró ningún archivo .sfc en la raíz.";
-                            }
-                        })
-                        .catch(() => fallbackDetection());
-                } else { fallbackDetection(); }
-            } else {
-                fallbackDetection();
-            }
-        }
-
-        // Alternativa de detección si usas servidores locales u otros hostings
-        function fallbackDetection() {
-            statusText.innerText = "Buscando juego por método alternativo...";
-            // Si no estás en GitHub, intentará cargar un archivo genérico llamado 'Aero Fighters (USA).sfc' en la raíz
-            executeRom("juego.sfc");
-        }
-
-        // Descarga y ejecuta el archivo encontrado
-        function executeRom(romName) {
-            currentRomName = romName;
-            statusText.innerText = "Cargando: " + romName;
-
-            fetch('./' + romName)
+        // Método directo para solicitar el archivo .sfc en la raíz del servidor nube
+        function autoFetchRootRom() {
+            fetch('./' + currentRomName)
                 .then(response => {
-                    if (!response.ok) throw new Error('Asegúrate de que tu archivo se llame Aero Fighters (USA).sfc o esté subido a GitHub Pages.');
+                    if (!response.ok) {
+                        throw new Error("No se detectó '" + currentRomName + "' automáticamente. Renombra tu juego en la raíz a '" + currentRomName + "' o usa el botón de arriba.");
+                    }
                     return response.arrayBuffer();
                 })
                 .then(buffer => {
-                    var data = new Uint8Array(buffer);
-                    var virtualPath = '/' + romName;
-
-                    Module['FS_createDataFile']('/', romName, data, true, true);
-                    
-                    // Cargar guardados previos si existen
-                    try {
-                        var savedState = localStorage.getItem('snes_save_' + currentRomName);
-                        if (savedState) {
-                            var stateArray = new Uint8Array(JSON.parse(savedState));
-                            Module['FS_createDataFile']('/', romName + '.srm', stateArray, true, true);
-                        }
-                    } catch(e) {}
-
-                    Module['callMain']([ virtualPath ]);
-                    statusText.innerText = "Jugando ahora: " + romName.replace('Aero Fighters (USA).sfc', '').replace(/_/g, ' ');
-
-                    // Auto-guardado constante
-                    setInterval(autoSaveGame, 15000);
+                    loadBufferIntoEmulator(buffer, currentRomName);
                 })
                 .catch(err => {
+                    statusText.style.color = "#ff9800";
                     statusText.innerText = err.message;
                 });
+        }
+
+        // Lector para el botón de subida manual (en caso de abrir un .sfc local)
+        document.getElementById('file-loader').addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+            currentRomName = file.name;
+            
+            var reader = new FileReader();
+            reader.onload = function(event) {
+                loadBufferIntoEmulator(event.target.result, currentRomName);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // Procesa el binario del juego e inicia el núcleo WebAssembly
+        function loadBufferIntoEmulator(buffer, romName) {
+            statusText.style.color = "#4caf50";
+            statusText.innerText = "Abriendo con éxito: " + romName;
+            
+            var data = new Uint8Array(buffer);
+            var virtualPath = '/' + romName;
+
+            // Inyecta el archivo .sfc en la memoria virtual del emulador
+            Module['FS_createDataFile']('/', romName, data, true, true);
+            
+            // Carga el progreso guardado de LocalStorage si existe para ese juego específico
+            try {
+                var savedState = localStorage.getItem('snes_save_' + romName);
+                if (savedState) {
+                    var stateArray = new Uint8Array(JSON.parse(savedState));
+                    Module['FS_createDataFile']('/', romName + '.srm', stateArray, true, true);
+                    statusText.innerText += " (Partida cargada)";
+                }
+            } catch(e) {}
+
+            // Llama a la función principal para arrancar el juego .sfc
+            Module['callMain']([ virtualPath ]);
+
+            // Habilita el guardado automático cada 15 segundos
+            setInterval(autoSaveGame, 15000);
         }
 
         function autoSaveGame() {
@@ -221,3 +220,7 @@
             btn.addEventListener('mousedown', (e) => { simulateKey(code, 'keydown'); });
             btn.addEventListener('mouseup', (e) => { simulateKey(code, 'keyup'); });
         });
+    </script>
+    <script async src="https://github.io"></script>
+</body>
+</html>
