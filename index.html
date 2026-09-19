@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SNES Cloud - Auto ROM</title>
+    <title>SNES Cloud - Raíz</title>
     <style>
         * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
         body {
@@ -21,7 +21,6 @@
         }
         h1 { margin: 5px 0; font-size: 1.2rem; color: #ff5722; }
         
-        /* Lista de selección de juegos del repositorio */
         #rom-selector { 
             margin-bottom: 10px; 
             background: #333; 
@@ -84,10 +83,11 @@
 
     <h1>SNES Cloud Player</h1>
     
-    <!-- Selector de Juegos de tu carpeta "roms" -->
+    <!-- Selector de Juegos en la Carpeta Raíz -->
     <select id="rom-selector">
-        <option value="">-- Elige un juego de tu nube --</option>
-        <option value="Aero Fighters (USA).sfc">Aero Fighters (USA)</option>
+        <option value="">-- Selecciona un juego --</option>
+        <option value="Super_Mario_World.sfc">Super Mario World</option>
+        <option value="Zelda_A_Link_To_The_Past.sfc">Zelda: A Link to the Past</option>
     </select>
 
     <div id="canvas-container">
@@ -129,38 +129,36 @@
             printErr: function(text) { console.error(text); },
             onRuntimeInitialized: function() { 
                 console.log("Emulador listo.");
-                // LINEA CLAVE: Crea la carpeta virtual '/roms' dentro del entorno WebAssembly al iniciar
-                Module['FS_createFolder']('/', 'roms', true, true);
             }
         };
 
-        // Función para descargar la ROM automáticamente desde tu servidor/repositorio
+        // Función para descargar la ROM directamente desde la raíz del servidor
         document.getElementById('rom-selector').addEventListener('change', function(e) {
             var romName = e.target.value;
             if (!romName) return;
 
-            // Ruta de la carpeta real en tu servidor (ej: roms/Super_Mario_World.sfc)
-            var urlRutaReal = 'roms/' + romName; 
+            // Busca el archivo directamente en la raíz (ej: ./Super_Mario_World.sfc)
+            var urlRutaReal = './' + romName; 
 
             fetch(urlRutaReal)
                 .then(response => {
-                    if (!response.ok) throw new Error('No se encontró el juego en la carpeta roms/');
+                    if (!response.ok) throw new Error('No se encontró el archivo en la raíz del servidor.');
                     return response.arrayBuffer();
                 })
                 .then(buffer => {
                     var data = new Uint8Array(buffer);
-                    var virtualPath = '/roms/' + romName;
+                    var virtualPath = '/' + romName;
 
-                    // Guarda el archivo descargado en la carpeta interna del emulador
-                    Module['FS_createDataFile']('/roms', romName, data, true, true);
+                    // Guarda el archivo directamente en el directorio raíz interno del emulador
+                    Module['FS_createDataFile']('/', romName, data, true, true);
                     
-                    // Ejecuta el juego apuntando a esa ruta
+                    // Ejecuta el juego desde la raíz
                     Module['callMain']([ virtualPath ]);
                 })
                 .catch(err => alert(err.message));
         });
 
-        // Mapeo de controles (idéntico al anterior)
+        // Mapeo de controles
         const keyMap = { 'btn-up': 38, 'btn-down': 40, 'btn-left': 37, 'btn-right': 39, 'btn-a': 88, 'btn-b': 90, 'btn-x': 83, 'btn-y': 65, 'btn-start': 13, 'btn-select': 16, 'btn-l': 81, 'btn-r': 87 };
         function simulateKey(keyCode, type) { window.dispatchEvent(new KeyboardEvent(type, { keyCode: keyCode, which: keyCode, bubbles: true })); }
         Object.keys(keyMap).forEach(id => {
